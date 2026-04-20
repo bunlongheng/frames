@@ -268,6 +268,16 @@ async function compositeFrame(screenshotDataUrl: string, device: DeviceType): Pr
 
 /* ── Device Picker ──────────────────────────────────────────────────────────── */
 
+const DEVICE_ICONS: Record<string, string> = {
+    iphone: "/assets/icons/iphone.png",
+    "ipad-portrait": "/assets/icons/ipad.png",
+    "ipad-landscape": "/assets/icons/ipad.png",
+    macbook: "/assets/icons/macbook.png",
+    imac: "/assets/icons/imac.png",
+    "studio-display": "/assets/icons/studio-display.png",
+    "studio-mini": "/assets/icons/studio-display.png",
+};
+
 function DevicePicker({ current, onChange }: { current: DeviceType; onChange: (d: DeviceType) => void }) {
     return (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -290,8 +300,12 @@ function DevicePicker({ current, onChange }: { current: DeviceType; onChange: (d
                                 cursor: "pointer",
                                 transition: "all 0.15s",
                                 whiteSpace: "nowrap",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 4,
                             }}
                         >
+                            {DEVICE_ICONS[d] && <img src={DEVICE_ICONS[d]} alt="" style={{ width: 18, height: 14, objectFit: "contain" }} draggable={false} />}
                             {FRAME_META[d].label}
                         </button>
                     ))}
@@ -316,11 +330,172 @@ const BACKGROUNDS = [
 
 /* ── Main Page ──────────────────────────────────────────────────────────────── */
 
+function ApiHelpModal({ onClose }: { onClose: () => void }) {
+    return (
+        <div
+            onClick={onClose}
+            style={{
+                position: "fixed", inset: 0, zIndex: 10000,
+                background: "rgba(0,0,0,0.7)",
+                backdropFilter: "blur(8px)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                padding: 20,
+            }}
+        >
+            <div
+                onClick={e => e.stopPropagation()}
+                style={{
+                    background: "#1a1a2e",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: 16,
+                    maxWidth: 620,
+                    width: "100%",
+                    maxHeight: "80vh",
+                    overflow: "auto",
+                    padding: "28px 32px",
+                    color: "#e0e0e0",
+                    fontSize: 13,
+                    lineHeight: 1.7,
+                }}
+            >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                    <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#fff" }}>Frames API</h2>
+                    <button onClick={onClose} style={{ background: "none", border: "none", color: "#666", fontSize: 22, cursor: "pointer", padding: "0 4px" }}>x</button>
+                </div>
+
+                <p style={{ color: "#888", marginTop: 0 }}>Send a screenshot, get back a framed device mockup PNG.</p>
+
+                {/* Endpoint */}
+                <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Endpoint</div>
+                    <code style={{ background: "rgba(255,255,255,0.06)", padding: "6px 12px", borderRadius: 8, display: "block", fontSize: 13, color: "#4da3ff" }}>
+                        POST /api/frame
+                    </code>
+                </div>
+
+                {/* Content Type */}
+                <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Content Type</div>
+                    <code style={{ background: "rgba(255,255,255,0.06)", padding: "6px 12px", borderRadius: 8, display: "block", fontSize: 13, color: "#ccc" }}>
+                        multipart/form-data
+                    </code>
+                </div>
+
+                {/* Fields */}
+                <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Fields</div>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead>
+                            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                                <th style={{ textAlign: "left", padding: "6px 8px", color: "#666", fontWeight: 600 }}>Field</th>
+                                <th style={{ textAlign: "left", padding: "6px 8px", color: "#666", fontWeight: 600 }}>Required</th>
+                                <th style={{ textAlign: "left", padding: "6px 8px", color: "#666", fontWeight: 600 }}>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                                <td style={{ padding: "6px 8px" }}><code style={{ color: "#4da3ff" }}>image</code></td>
+                                <td style={{ padding: "6px 8px", color: "#e06c75" }}>Yes</td>
+                                <td style={{ padding: "6px 8px", color: "#999" }}>Screenshot file (PNG/JPG, max 20 MB)</td>
+                            </tr>
+                            <tr>
+                                <td style={{ padding: "6px 8px" }}><code style={{ color: "#4da3ff" }}>device</code></td>
+                                <td style={{ padding: "6px 8px", color: "#98c379" }}>No</td>
+                                <td style={{ padding: "6px 8px", color: "#999" }}>Device type. Auto-detects from aspect ratio if omitted.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                {/* Devices */}
+                <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Devices</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {(["iphone", "ipad-portrait", "ipad-landscape", "macbook", "imac", "studio-display", "studio-mini"] as const).map(d => (
+                            <span key={d} style={{ background: "rgba(255,255,255,0.06)", padding: "3px 10px", borderRadius: 6, fontSize: 11, color: "#aaa", fontFamily: "monospace" }}>{d}</span>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Response */}
+                <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Response</div>
+                    <p style={{ margin: "0 0 4px", color: "#999" }}>Returns the framed image as <code style={{ color: "#e5c07b" }}>image/png</code> binary. The <code style={{ color: "#e5c07b" }}>X-Device</code> header shows which device was used.</p>
+                </div>
+
+                {/* Examples */}
+                <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Examples</div>
+
+                    <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>MacBook frame</div>
+                        <pre style={{ background: "rgba(0,0,0,0.3)", padding: "10px 14px", borderRadius: 8, overflow: "auto", margin: 0, fontSize: 12, color: "#98c379" }}>
+{`curl -X POST \\
+  -F "image=@screenshot.png" \\
+  -F "device=macbook" \\
+  https://your-domain.com/api/frame \\
+  -o framed.png`}
+                        </pre>
+                    </div>
+
+                    <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>iPhone frame</div>
+                        <pre style={{ background: "rgba(0,0,0,0.3)", padding: "10px 14px", borderRadius: 8, overflow: "auto", margin: 0, fontSize: 12, color: "#98c379" }}>
+{`curl -X POST \\
+  -F "image=@screenshot.png" \\
+  -F "device=iphone" \\
+  https://your-domain.com/api/frame \\
+  -o framed.png`}
+                        </pre>
+                    </div>
+
+                    <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Auto-detect device from image dimensions</div>
+                        <pre style={{ background: "rgba(0,0,0,0.3)", padding: "10px 14px", borderRadius: 8, overflow: "auto", margin: 0, fontSize: 12, color: "#98c379" }}>
+{`curl -X POST \\
+  -F "image=@screenshot.png" \\
+  https://your-domain.com/api/frame \\
+  -o framed.png`}
+                        </pre>
+                    </div>
+
+                    <div>
+                        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>JavaScript / Node.js</div>
+                        <pre style={{ background: "rgba(0,0,0,0.3)", padding: "10px 14px", borderRadius: 8, overflow: "auto", margin: 0, fontSize: 12, color: "#e5c07b" }}>
+{`const form = new FormData();
+form.append("image", fileInput.files[0]);
+form.append("device", "iphone");
+
+const res = await fetch("/api/frame", {
+  method: "POST",
+  body: form,
+});
+const blob = await res.blob();`}
+                        </pre>
+                    </div>
+                </div>
+
+                {/* Auto-detect logic */}
+                <div style={{ background: "rgba(255,255,255,0.03)", padding: "12px 16px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Auto-detect Logic</div>
+                    <div style={{ fontSize: 12, color: "#888", lineHeight: 1.8 }}>
+                        When <code style={{ color: "#e5c07b" }}>device</code> is omitted, the API picks based on image aspect ratio:<br />
+                        <span style={{ color: "#aaa" }}>height/width &gt; 1.5</span> &rarr; <code style={{ color: "#4da3ff" }}>iphone</code><br />
+                        <span style={{ color: "#aaa" }}>height/width &gt; 1.0</span> &rarr; <code style={{ color: "#4da3ff" }}>ipad-portrait</code><br />
+                        <span style={{ color: "#aaa" }}>otherwise</span> &rarr; <code style={{ color: "#4da3ff" }}>macbook</code>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function FramesInner() {
     const [images, setImages] = useState<FrameImage[]>([]);
     const [dragging, setDragging] = useState(false);
     const [bg, setBg] = useState(BACKGROUNDS[0].value);
     const [compositing, setCompositing] = useState(false);
+    const [showApiHelp, setShowApiHelp] = useState(false);
     const dragCounter = useRef(0);
     const previewRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -550,6 +725,31 @@ function FramesInner() {
                     </button>
                 </div>
             )}
+
+            {/* ── API Help ? button — top right ──────────────────────────── */}
+            <button
+                onClick={() => setShowApiHelp(true)}
+                style={{
+                    position: "fixed", top: 16, right: 16, zIndex: 100,
+                    width: 32, height: 32, borderRadius: "50%",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    background: "rgba(255,255,255,0.06)",
+                    backdropFilter: "blur(8px)",
+                    color: "#666",
+                    fontSize: 15, fontWeight: 700,
+                    cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "all 0.2s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "#4da3ff"; e.currentTarget.style.color = "#4da3ff"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; e.currentTarget.style.color = "#666"; }}
+                title="API Documentation"
+            >
+                ?
+            </button>
+
+            {/* ── API Help Modal ──────────────────────────────────────────── */}
+            {showApiHelp && <ApiHelpModal onClose={() => setShowApiHelp(false)} />}
 
             {/* ── Drag overlay ─────────────────────────────────────────────── */}
             {dragging && (
