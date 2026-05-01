@@ -105,7 +105,7 @@ async function compositeFrame(
 
     // Resize screenshot to fit the screen area
     const resizedScreenshot = await sharp(screenshotBuffer)
-        .resize(meta.screenWidth, meta.screenHeight, { fit: "fill" })
+        .resize(meta.screenWidth, meta.screenHeight, { fit: "cover" })
         .png()
         .toBuffer();
 
