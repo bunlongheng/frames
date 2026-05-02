@@ -245,13 +245,24 @@ async function compositeFrame(screenshotDataUrl: string, device: DeviceType): Pr
     canvas.height = meta.frameDimensions.height;
     const ctx = canvas.getContext("2d")!;
 
-    if (meta.isPhoto) {
-        // TV setup: draw room photo first, then screenshot on top
-        ctx.drawImage(frame, 0, 0);
-        ctx.drawImage(screenshot, meta.screenOffset.x, meta.screenOffset.y, meta.screenWidth, meta.screenHeight);
+    // Cover-fit: crop screenshot to match screen aspect ratio (no stretching)
+    const screenAspect = meta.screenWidth / meta.screenHeight;
+    const imgAspect = screenshot.naturalWidth / screenshot.naturalHeight;
+    let sx = 0, sy = 0, sw = screenshot.naturalWidth, sh = screenshot.naturalHeight;
+    if (imgAspect > screenAspect) {
+        // Image is wider — crop sides
+        sw = screenshot.naturalHeight * screenAspect;
+        sx = (screenshot.naturalWidth - sw) / 2;
     } else {
-        // Device frame: draw screenshot first, then frame on top (transparent screen)
-        ctx.drawImage(screenshot, meta.screenOffset.x, meta.screenOffset.y, meta.screenWidth, meta.screenHeight);
+        // Image is taller — crop top from top
+        sh = screenshot.naturalWidth / screenAspect;
+    }
+
+    if (meta.isPhoto) {
+        ctx.drawImage(frame, 0, 0);
+        ctx.drawImage(screenshot, sx, sy, sw, sh, meta.screenOffset.x, meta.screenOffset.y, meta.screenWidth, meta.screenHeight);
+    } else {
+        ctx.drawImage(screenshot, sx, sy, sw, sh, meta.screenOffset.x, meta.screenOffset.y, meta.screenWidth, meta.screenHeight);
         ctx.drawImage(frame, 0, 0);
     }
 
@@ -499,6 +510,50 @@ function FramesInner() {
     const dragCounter = useRef(0);
     const previewRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+
+    /* Load default screenshot on page load */
+    useEffect(() => {
+        const src = "/assets/screenshots/bunlongheng.png";
+        const img = new Image();
+        img.onload = () => {
+            setImages([{
+                id: "default",
+                dataUrl: src,
+                width: img.naturalWidth,
+                height: img.naturalHeight,
+                device: "macbook",
+            }]);
+        };
+        img.src = src;
+    }, []);
+
+    /* Swap screenshot source when device changes to match viewport */
+    const prevDeviceRef = useRef<string>("");
+    useEffect(() => {
+        if (!images.length || images[0].id !== "default") return;
+        const device = images[0].device;
+        const key = device;
+        if (key === prevDeviceRef.current) return;
+        prevDeviceRef.current = key;
+
+        let src = "/assets/screenshots/bunlongheng.png"; // desktop
+        if (device === "iphone") src = "/assets/screenshots/bunlongheng-mobile.png";
+        else if (device === "ipad-portrait") src = "/assets/screenshots/bunlongheng-tablet.png";
+
+        if (src === images[0].dataUrl) return;
+        const img = new Image();
+        img.onload = () => {
+            setImages([{
+                id: "default",
+                dataUrl: src,
+                width: img.naturalWidth,
+                height: img.naturalHeight,
+                device,
+            }]);
+        };
+        img.src = src;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [images.map(i => `${i.id}:${i.device}`).join(",")]);
 
     /* Composite whenever images or their device selection changes */
     useEffect(() => {
