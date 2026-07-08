@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback, Suspense } from "react";
+import React, { useState, useRef, useEffect, useCallback, Suspense, useMemo } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 
 
 /* ── Types ──────────────────────────────────────────────────────────────────── */
@@ -205,7 +206,7 @@ const FRAME_META: Record<DeviceType, FrameMeta> = {
 };
 
 const DEVICE_GROUPS = [
-    { group: "Apple", devices: ["iphone", "ipad-portrait", "ipad-landscape", "macbook", "imac", "studio-display", "studio-mini"] as DeviceType[] },
+    { group: "Apple", devices: ["iphone", "ipad-portrait", "ipad-landscape", "macbook", "imac", "studio-display"] as DeviceType[] },
     // TV behind beta — uncomment when hi-res images available
     // { group: "TV (Beta)", devices: ["tv-bamboo", "tv-dark-panel", "tv-gallery", "tv-beige", "tv-theater", "tv-walnut", "tv-colorful", "tv-frame-art", "tv-teal"] as DeviceType[] },
 ];
@@ -277,6 +278,80 @@ async function compositeFrame(screenshotDataUrl: string, device: DeviceType): Pr
     return canvas.toDataURL("image/png");
 }
 
+/* ── Full-resolution export ─────────────────────────────────────────────────── */
+
+function fillBackground(ctx: CanvasRenderingContext2D, bg: string, w: number, h: number) {
+    if (bg === "transparent") return;
+    if (bg.startsWith("linear-gradient")) {
+        const stops = bg.match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)/g) || [];
+        const grad = ctx.createLinearGradient(0, 0, w, h); // ~135deg: top-left -> bottom-right
+        const first = stops[0], last = stops[stops.length - 1];
+        if (first && last) {
+            grad.addColorStop(0, first);
+            grad.addColorStop(1, last);
+        }
+        ctx.fillStyle = grad;
+    } else {
+        ctx.fillStyle = bg;
+    }
+    ctx.fillRect(0, 0, w, h);
+}
+
+// Draw the composited frames onto a single canvas at native resolution (no DOM raster).
+async function renderExportCanvas(images: FrameImage[], bg: string): Promise<HTMLCanvasElement> {
+    const loaded = await Promise.all(images.map(i => loadImage(i.composited || i.dataUrl)));
+    const n = images.length;
+    const CSS_PAD = 48;
+    const CSS_GAP = n === 1 ? 0 : 32;
+    const CSS_LABEL = 20; // label row height under each frame (matches preview marginTop + text)
+
+    // Per-frame CSS display size - height fixed to displayHeight, width from the
+    // composited image's real aspect ratio (mirrors the preview layout).
+    const frames = images.map((img, k) => {
+        const el = loaded[k];
+        const h = FRAME_META[img.device].displayHeight;
+        const w = h * (el.naturalWidth / el.naturalHeight);
+        return { el, w, h, device: img.device };
+    });
+    const maxH = Math.max(...frames.map(f => f.h));
+    const contentW = frames.reduce((s, f) => s + f.w, 0) + CSS_GAP * (n - 1);
+    const cssW = contentW + CSS_PAD * 2;
+    const cssH = maxH + CSS_LABEL + CSS_PAD * 2;
+
+    // Scale up so the primary frame renders at (up to) its native resolution - HD.
+    // Capped so the canvas stays within browser limits.
+    const MAX_DIM = 8000;
+    const nativeScale = loaded[0].naturalHeight / frames[0].h;
+    const scale = Math.max(1, Math.min(nativeScale, MAX_DIM / cssW, MAX_DIM / cssH));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(cssW * scale);
+    canvas.height = Math.round(cssH * scale);
+    const ctx = canvas.getContext("2d")!;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    fillBackground(ctx, bg, canvas.width, canvas.height);
+
+    const bottomY = (CSS_PAD + maxH) * scale; // frames are bottom-aligned (flex-end)
+    let x = CSS_PAD * scale;
+    for (const f of frames) {
+        const fw = f.w * scale, fh = f.h * scale;
+        ctx.drawImage(f.el, x, bottomY - fh, fw, fh);
+
+        const meta = FRAME_META[f.device];
+        ctx.font = `500 ${Math.round(11 * scale)}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+        ctx.fillStyle = "rgba(255,255,255,0.4)";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        const label = meta.group === "TV" ? `TV - ${meta.label}` : `Apple ${meta.label}`;
+        ctx.fillText(label, x + fw / 2, bottomY + 8 * scale);
+
+        x += fw + CSS_GAP * scale;
+    }
+    return canvas;
+}
+
 /* ── Device Picker ──────────────────────────────────────────────────────────── */
 
 const DEVICE_ICONS: Record<string, string> = {
@@ -290,37 +365,34 @@ const DEVICE_ICONS: Record<string, string> = {
 };
 
 function DevicePicker({ current, onChange }: { current: DeviceType; onChange: (d: DeviceType) => void }) {
+    const [hovered, setHovered] = useState<string | null>(null);
     return (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {DEVICE_GROUPS.map(g => (
-                <div key={g.group} style={{ display: "flex", gap: 3, alignItems: "center" }}>
-                    <span style={{ fontSize: 10, color: "#555", marginRight: 2, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>{g.group}</span>
-                    {g.devices.map(d => (
-                        <button
-                            key={d}
-                            onClick={() => onChange(d)}
-                            style={{
-                                padding: "3px 8px",
-                                fontSize: 10,
-                                fontWeight: 500,
-                                borderRadius: 5,
-                                border: "1px solid",
-                                borderColor: current === d ? "#007aff" : "rgba(255,255,255,0.12)",
-                                background: current === d ? "rgba(0,122,255,0.15)" : "rgba(255,255,255,0.04)",
-                                color: current === d ? "#4da3ff" : "#999",
-                                cursor: "pointer",
-                                transition: "all 0.15s",
-                                whiteSpace: "nowrap",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 4,
-                            }}
-                        >
-                            {DEVICE_ICONS[d] && <img src={DEVICE_ICONS[d]} alt="" style={{ width: 18, height: 14, objectFit: "contain" }} draggable={false} />}
-                            {FRAME_META[d].label}
-                        </button>
-                    ))}
-                    {g.group !== "TV" && <span style={{ color: "rgba(255,255,255,0.1)", margin: "0 2px" }}>|</span>}
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+            {DEVICE_GROUPS.flatMap(g => g.devices).map(d => (
+                <div key={d} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                    <button
+                        onClick={() => onChange(d)}
+                        onMouseEnter={() => setHovered(d)}
+                        onMouseLeave={() => setHovered(null)}
+                        style={{
+                            width: 103, height: 103, borderRadius: "50%",
+                            border: current === d ? "2px solid #007aff" : "2px solid transparent",
+                            background: "#fff",
+                            cursor: "pointer",
+                            transition: "all 0.15s",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            boxShadow: current === d ? "0 0 0 3px rgba(0,122,255,0.3)" : "0 2px 8px rgba(0,0,0,0.2)",
+                        }}
+                    >
+                        {DEVICE_ICONS[d] && <img src={DEVICE_ICONS[d]} alt={FRAME_META[d].label} style={{ width: 72, height: 72, objectFit: "contain" }} draggable={false} />}
+                    </button>
+                    <span style={{
+                        fontSize: 11, fontWeight: 500, color: current === d ? "#4da3ff" : "#666",
+                        opacity: hovered === d || current === d ? 1 : 0,
+                        transition: "opacity 0.15s",
+                    }}>
+                        {FRAME_META[d].label}
+                    </span>
                 </div>
             ))}
         </div>
@@ -502,6 +574,14 @@ const blob = await res.blob();`}
 }
 
 function FramesInner() {
+    const searchParams = useSearchParams();
+    const router = useRouter();
+    const initialDevice = useMemo(() => {
+        const param = searchParams.get("device");
+        return param && param in FRAME_META ? param as DeviceType : "macbook";
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const [images, setImages] = useState<FrameImage[]>([]);
     const [dragging, setDragging] = useState(false);
     const [bg, setBg] = useState(BACKGROUNDS[0].value);
@@ -510,10 +590,43 @@ function FramesInner() {
     const dragCounter = useRef(0);
     const previewRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    const autoDownload = useRef(false); // trigger download once after a user drop finishes compositing
+    const bgRef = useRef(bg);
+    useEffect(() => { bgRef.current = bg; }, [bg]);
+
+    const [downloadProgress, setDownloadProgress] = useState(0);
+    const [downloading, setDownloading] = useState(false);
+
+    /* Core export - draw full-res composited frames to a canvas, save as HD WebP */
+    const doDownload = useCallback(async (imgs: FrameImage[], bgVal: string) => {
+        if (!imgs.length) return;
+        setDownloading(true);
+        setDownloadProgress(15);
+        const tick = setInterval(() => setDownloadProgress(p => (p < 85 ? p + 20 : p)), 80);
+        try {
+            const canvas = await renderExportCanvas(imgs, bgVal);
+            setDownloadProgress(95);
+            const link = document.createElement("a");
+            link.download = `frames-${Date.now()}.webp`;
+            link.href = canvas.toDataURL("image/webp", 0.95);
+            setDownloadProgress(100);
+            link.click();
+        } finally {
+            clearInterval(tick);
+            setTimeout(() => { setDownloading(false); setDownloadProgress(0); }, 400);
+        }
+    }, []);
+
+    /* Screenshot source per device */
+    const screenshotForDevice = useCallback((device: DeviceType) => {
+        if (device === "iphone") return "/assets/screenshots/bunlongheng-mobile.png";
+        if (device === "ipad-portrait") return "/assets/screenshots/bunlongheng-tablet.png";
+        return "/assets/screenshots/bunlongheng.png";
+    }, []);
 
     /* Load default screenshot on page load */
     useEffect(() => {
-        const src = "/assets/screenshots/bunlongheng.png";
+        const src = screenshotForDevice(initialDevice);
         const img = new Image();
         img.onload = () => {
             setImages([{
@@ -521,26 +634,21 @@ function FramesInner() {
                 dataUrl: src,
                 width: img.naturalWidth,
                 height: img.naturalHeight,
-                device: "macbook",
+                device: initialDevice,
             }]);
         };
         img.src = src;
-    }, []);
+    }, [initialDevice, screenshotForDevice]);
 
     /* Swap screenshot source when device changes to match viewport */
-    const prevDeviceRef = useRef<string>("");
+    const prevDeviceRef = useRef<string>(initialDevice);
     useEffect(() => {
         if (!images.length || images[0].id !== "default") return;
         const device = images[0].device;
-        const key = device;
-        if (key === prevDeviceRef.current) return;
-        prevDeviceRef.current = key;
+        if (device === prevDeviceRef.current) return;
+        prevDeviceRef.current = device;
 
-        let src = "/assets/screenshots/bunlongheng.png"; // desktop
-        if (device === "iphone") src = "/assets/screenshots/bunlongheng-mobile.png";
-        else if (device === "ipad-portrait") src = "/assets/screenshots/bunlongheng-tablet.png";
-
-        if (src === images[0].dataUrl) return;
+        const src = screenshotForDevice(device);
         const img = new Image();
         img.onload = () => {
             setImages([{
@@ -553,11 +661,14 @@ function FramesInner() {
         };
         img.src = src;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [images.map(i => `${i.id}:${i.device}`).join(",")]);
+    }, [images.map(i => `${i.id}:${i.device}`).join(","), screenshotForDevice]);
 
-    /* Composite whenever images or their device selection changes */
+    /* Composite whenever images or their device/source changes */
+    const compositeKey = images.map(i => `${i.id}:${i.device}:${i.dataUrl}`).join(",");
     useEffect(() => {
         if (!images.length) return;
+        // Skip if all already composited
+        if (images.every(i => i.composited)) return;
         let cancelled = false;
         setCompositing(true);
 
@@ -570,16 +681,21 @@ function FramesInner() {
             if (!cancelled) {
                 setImages(results);
                 setCompositing(false);
+                if (autoDownload.current) {
+                    autoDownload.current = false;
+                    doDownload(results, bgRef.current);
+                }
             }
         });
 
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [images.map(i => `${i.id}:${i.device}`).join(",")]);
+    }, [compositeKey]);
 
     const processFiles = useCallback((files: File[]) => {
         const imageFiles = Array.from(files).filter(f => f.type.startsWith("image/")).slice(0, 4);
         if (!imageFiles.length) return;
+        autoDownload.current = true; // auto-save once compositing finishes
 
         const promises = imageFiles.map(file => new Promise<FrameImage>((resolve) => {
             const reader = new FileReader();
@@ -618,65 +734,34 @@ function FramesInner() {
 
     const updateDevice = useCallback((id: string, device: DeviceType) => {
         setImages(prev => prev.map(img => img.id === id ? { ...img, device, composited: undefined } : img));
-    }, []);
+        router.replace(`?device=${device}`, { scroll: false });
+    }, [router]);
 
     const removeImage = useCallback((id: string) => {
         setImages(prev => prev.filter(img => img.id !== id));
     }, []);
 
-    const [downloadProgress, setDownloadProgress] = useState(0);
-    const [downloading, setDownloading] = useState(false);
-
-    const handleExport = useCallback(async () => {
-        if (!previewRef.current || downloading) return;
-        setDownloading(true);
-        setDownloadProgress(0);
-
-        // Simulate progress during html2canvas rendering
-        const progressInterval = setInterval(() => {
-            setDownloadProgress(prev => prev < 85 ? prev + Math.random() * 15 : prev);
-        }, 100);
-
-        try {
-            const { default: html2canvas } = await import("html2canvas");
-            setDownloadProgress(40);
-            const canvas = await html2canvas(previewRef.current, { backgroundColor: null, scale: 2, useCORS: true });
-            setDownloadProgress(90);
-            const link = document.createElement("a");
-            link.download = `frames-${Date.now()}.png`;
-            link.href = canvas.toDataURL("image/png");
-            setDownloadProgress(100);
-            link.click();
-        } finally {
-            clearInterval(progressInterval);
-            setTimeout(() => { setDownloading(false); setDownloadProgress(0); }, 600);
-        }
-    }, [downloading]);
+    const handleExport = useCallback(() => {
+        if (downloading) return;
+        doDownload(images, bg);
+    }, [downloading, images, bg, doDownload]);
 
     const isEmpty = images.length === 0;
 
     return (
         <>
-            <div style={{ minHeight: "100dvh", background: "#0e0e10", color: "#f5f5f7", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", paddingTop: 54 }}>
+            <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", background: "#0e0e10", color: "#f5f5f7", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", paddingTop: 54 }}>
 
                 {/* Hidden file input for drop zone click fallback */}
                 <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={e => { if (e.target.files) processFiles(Array.from(e.target.files)); e.target.value = ""; }} />
 
-                {/* ── Device pickers per image ─────────────────────────────── */}
+                {/* ── Device picker ─────────────────────────────── */}
                 {images.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "8px 20px" }}>
-                        {images.map((img, i) => (
-                            <div key={img.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "6px 10px" }}>
-                                <span style={{ fontSize: 11, color: "#666", fontWeight: 600 }}>#{i + 1}</span>
-                                <DevicePicker current={img.device} onChange={d => updateDevice(img.id, d)} />
-                                <button onClick={() => removeImage(img.id)} style={{ fontSize: 14, color: "#666", background: "none", border: "none", cursor: "pointer", padding: "0 4px" }}>×</button>
-                            </div>
-                        ))}
-                    </div>
+                    <DevicePicker current={images[0].device} onChange={d => { images.forEach(img => updateDevice(img.id, d)); }} />
                 )}
 
                 {/* ── Preview / Drop zone ──────────────────────────────────── */}
-                <div style={{ display: "flex", justifyContent: "center", padding: "24px 20px 80px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, padding: "24px 20px 80px" }}>
                     {isEmpty ? (
                         <div
                             onClick={() => inputRef.current?.click()}
@@ -727,7 +812,7 @@ function FramesInner() {
                                             style={{ height: h, width: w, objectFit: "contain", display: "block" }}
                                             draggable={false}
                                         />
-                                        <span style={{ marginTop: 8, fontSize: 11, color: "rgba(255,255,255,0.4)", fontWeight: 500 }}>
+                                        <span style={{ marginTop: 8, fontSize: 11, color: "rgba(255,255,255,0.4)", fontWeight: 500, textAlign: "center", width: "100%" }}>
                                             {meta.group === "TV" ? `TV — ${meta.label}` : `Apple ${meta.label}`}
                                         </span>
                                     </div>
