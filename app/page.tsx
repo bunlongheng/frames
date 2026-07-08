@@ -820,6 +820,21 @@ function FramesInner() {
         return () => { document.removeEventListener("dragenter", onEnter); document.removeEventListener("dragleave", onLeave); document.removeEventListener("dragover", onOver); document.removeEventListener("drop", onDrop); };
     }, [processFiles]);
 
+    /* Cmd/Ctrl + V paste image from clipboard */
+    useEffect(() => {
+        const onPaste = (e: ClipboardEvent) => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            const files = Array.from(items)
+                .filter(it => it.kind === "file" && it.type.startsWith("image/"))
+                .map(it => it.getAsFile())
+                .filter((f): f is File => !!f);
+            if (files.length) { e.preventDefault(); processFiles(files); }
+        };
+        document.addEventListener("paste", onPaste);
+        return () => document.removeEventListener("paste", onPaste);
+    }, [processFiles]);
+
     const updateDevice = useCallback((id: string, device: DeviceType) => {
         setImages(prev => prev.map(img => img.id === id ? { ...img, device, composited: undefined } : img));
         router.replace(`?device=${device}`, { scroll: false });
