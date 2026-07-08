@@ -352,6 +352,92 @@ async function renderExportCanvas(images: FrameImage[], bg: string): Promise<HTM
     return canvas;
 }
 
+/* ── Success feedback: shutter sound + confetti ─────────────────────────────── */
+
+let _audioCtx: AudioContext | null = null;
+
+// Crisp camera-shutter / copy click, synthesized (no asset, works offline)
+function playShutter() {
+    try {
+        const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        _audioCtx = _audioCtx || new AC();
+        const ctx = _audioCtx;
+        if (ctx.state === "suspended") ctx.resume();
+        const now = ctx.currentTime;
+
+        // Short filtered noise burst - the mechanical "shck"
+        const noise = ctx.createBufferSource();
+        const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.05), ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 2);
+        noise.buffer = buf;
+        const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 2600; bp.Q.value = 0.8;
+        const ng = ctx.createGain(); ng.gain.value = 0.35;
+        noise.connect(bp).connect(ng).connect(ctx.destination);
+        noise.start(now);
+
+        // Two quick clicks for the shutter snap
+        const click = (t: number, freq: number, dur: number, gain: number) => {
+            const o = ctx.createOscillator(); const g = ctx.createGain();
+            o.type = "square"; o.frequency.setValueAtTime(freq, t);
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.exponentialRampToValueAtTime(gain, t + 0.002);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+            o.connect(g).connect(ctx.destination);
+            o.start(t); o.stop(t + dur);
+        };
+        click(now, 1900, 0.03, 0.12);
+        click(now + 0.06, 1250, 0.04, 0.1);
+    } catch { /* audio not available - ignore */ }
+}
+
+// Lightweight canvas confetti burst (~1.9s, self-cleaning, no deps)
+function fireConfetti() {
+    const W = window.innerWidth, H = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const canvas = document.createElement("canvas");
+    canvas.style.cssText = "position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:99999";
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext("2d")!;
+    ctx.scale(dpr, dpr);
+
+    const colors = ["#007aff", "#4da3ff", "#34c759", "#ff2d55", "#ffcc00", "#af52de", "#ff9500"];
+    const parts = Array.from({ length: 150 }, () => {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 6 + Math.random() * 10;
+        return {
+            x: W / 2, y: H * 0.42,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 7,
+            size: 5 + Math.random() * 7,
+            color: colors[(Math.random() * colors.length) | 0],
+            rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.3,
+        };
+    });
+
+    let raf = 0, start = 0;
+    const tick = (ts: number) => {
+        if (!start) start = ts;
+        const elapsed = ts - start;
+        const life = Math.max(0, 1 - elapsed / 1800);
+        ctx.clearRect(0, 0, W, H);
+        for (const p of parts) {
+            p.vy += 0.28; p.vx *= 0.99;
+            p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+            ctx.save();
+            ctx.globalAlpha = life;
+            ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+            ctx.fillStyle = p.color;
+            ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+            ctx.restore();
+        }
+        if (elapsed < 1900) raf = requestAnimationFrame(tick);
+        else { cancelAnimationFrame(raf); canvas.remove(); }
+    };
+    raf = requestAnimationFrame(tick);
+}
+
 /* ── Device Picker ──────────────────────────────────────────────────────────── */
 
 const DEVICE_ICONS: Record<string, string> = {
@@ -611,6 +697,8 @@ function FramesInner() {
             link.href = canvas.toDataURL("image/webp", 0.95);
             setDownloadProgress(100);
             link.click();
+            playShutter();
+            fireConfetti();
         } finally {
             clearInterval(tick);
             setTimeout(() => { setDownloading(false); setDownloadProgress(0); }, 400);
