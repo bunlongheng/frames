@@ -704,30 +704,48 @@ function FramesInner() {
     const bgRef = useRef(bg);
     useEffect(() => { bgRef.current = bg; }, [bg]);
 
-    const [downloadProgress, setDownloadProgress] = useState(0);
     const [downloading, setDownloading] = useState(false);
+    const [copied, setCopied] = useState(false);
+    const [exportSize, setExportSize] = useState<{ w: number; h: number } | null>(null);
+    const exportCanvasRef = useRef<HTMLCanvasElement | null>(null); // pre-rendered export, reused for save/copy
 
-    /* Core export - draw full-res composited frames to a canvas, save as HD WebP */
-    const doDownload = useCallback(async (imgs: FrameImage[], bgVal: string) => {
-        if (!imgs.length) return;
+    /* Core export - draw full-res composited frames to a canvas.
+       Uses the pre-rendered canvas when saving the current state (instant);
+       renders from explicit args for the auto-download-after-drop path. */
+    const doDownload = useCallback(async (fmt: "webp" | "png", imgs?: FrameImage[], bgVal?: string) => {
+        if (downloading) return;
+        const targets = imgs ?? images;
+        if (!targets.length) return;
         setDownloading(true);
-        setDownloadProgress(15);
-        const tick = setInterval(() => setDownloadProgress(p => (p < 85 ? p + 20 : p)), 80);
         try {
-            const canvas = await renderExportCanvas(imgs, bgVal);
-            setDownloadProgress(95);
+            const canvas = (!imgs && exportCanvasRef.current) || await renderExportCanvas(targets, bgVal ?? bg);
             const link = document.createElement("a");
-            link.download = `frames-${Date.now()}.webp`;
-            link.href = canvas.toDataURL("image/webp", 0.95);
-            setDownloadProgress(100);
+            link.download = `frames-${Date.now()}.${fmt}`;
+            link.href = fmt === "png" ? canvas.toDataURL("image/png") : canvas.toDataURL("image/webp", 0.95);
             link.click();
             playShutter();
             fireConfetti();
         } finally {
-            clearInterval(tick);
-            setTimeout(() => { setDownloading(false); setDownloadProgress(0); }, 400);
+            setTimeout(() => setDownloading(false), 300);
         }
-    }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [downloading, images, bg]);
+
+    /* Copy the framed image to the clipboard (PNG - the only format clipboards accept).
+       Uses the ClipboardItem-with-Promise form so write() is called synchronously
+       after the click (keeps user activation) while the blob resolves lazily. */
+    const copyImage = useCallback(async () => {
+        if (!images.length) return;
+        try {
+            const canvas = exportCanvasRef.current || await renderExportCanvas(images, bg);
+            const blobPromise = new Promise<Blob>((res, rej) => canvas.toBlob(b => b ? res(b) : rej(new Error("no blob")), "image/png"));
+            await navigator.clipboard.write([new ClipboardItem({ "image/png": blobPromise })]);
+            playShutter();
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1600);
+        } catch { /* clipboard unavailable / blocked - ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [images, bg]);
 
     /* Screenshot source per device */
     const screenshotForDevice = useCallback((device: DeviceType) => {
@@ -799,7 +817,7 @@ function FramesInner() {
                 setCompositing(false);
                 if (autoDownload.current) {
                     autoDownload.current = false;
-                    doDownload(results, bgRef.current);
+                    doDownload("webp", results, bgRef.current);
                 }
             }
         }).catch(() => { if (!cancelled) setCompositing(false); });
@@ -807,6 +825,31 @@ function FramesInner() {
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [compositeKey]);
+
+    /* Pre-render the export canvas once compositing settles, so WEBP / PNG / Copy
+       are instant and we can show the live output dimensions. */
+    const exportReadyKey = images.map(i => `${i.id}:${i.device}:${i.composited ? 1 : 0}`).join(",") + "|" + bg;
+    useEffect(() => {
+        if (!images.length || !images.every(i => i.composited)) { exportCanvasRef.current = null; setExportSize(null); return; }
+        let cancelled = false;
+        renderExportCanvas(images, bg).then(canvas => {
+            if (cancelled) return;
+            exportCanvasRef.current = canvas;
+            setExportSize({ w: canvas.width, h: canvas.height });
+        }).catch(() => {});
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [exportReadyKey]);
+
+    /* Cmd/Ctrl+S saves WEBP */
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (!images.length) return;
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); doDownload("webp"); }
+        };
+        document.addEventListener("keydown", onKey);
+        return () => document.removeEventListener("keydown", onKey);
+    }, [images.length, doDownload]);
 
     const processFiles = useCallback((files: File[]) => {
         const imageFiles = Array.from(files).filter(f => f.type.startsWith("image/")).slice(0, 4);
@@ -872,12 +915,29 @@ function FramesInner() {
         setImages(prev => prev.filter(img => img.id !== id));
     }, []);
 
-    const handleExport = useCallback(() => {
-        if (downloading) return;
-        doDownload(images, bg);
-    }, [downloading, images, bg, doDownload]);
-
     const isEmpty = images.length === 0;
+
+    /* Export-bar building blocks */
+    const busy = compositing || downloading;
+    const btnBase: React.CSSProperties = {
+        display: "flex", alignItems: "center", gap: 7, height: 40, padding: "0 17px",
+        borderRadius: 12, fontSize: 13, fontWeight: 600, letterSpacing: "0.01em",
+        border: "1px solid transparent", fontFamily: "inherit", whiteSpace: "nowrap",
+        transition: "transform 0.12s ease, background 0.15s, border-color 0.15s, opacity 0.15s",
+    };
+    const iconDownload = (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+    );
+    const iconCopy = (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+    );
+    const iconCheck = (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+    );
 
     return (
         <>
@@ -954,45 +1014,59 @@ function FramesInner() {
                 </div>
             </div>
 
-            {/* ── Download circle button — center bottom ─────────────────────── */}
+            {/* ── Export bar - center bottom ─────────────────────────────────── */}
             {!isEmpty && (
-                <div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", zIndex: 50 }}>
-                    <button
-                        onClick={handleExport}
-                        disabled={compositing || downloading}
-                        style={{
-                            position: "relative",
-                            width: 72, height: 72, borderRadius: "50%",
-                            border: "3px solid rgba(255,255,255,0.6)",
-                            background: "rgba(255,255,255,0.08)",
-                            backdropFilter: "blur(12px)",
-                            color: "#fff",
-                            cursor: (compositing || downloading) ? "wait" : "pointer",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            transition: "border-color 0.2s, background 0.2s, transform 0.15s",
-                            boxShadow: "0 4px 24px rgba(0,0,0,0.3)",
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = "#fff"; e.currentTarget.style.background = "rgba(255,255,255,0.15)"; e.currentTarget.style.transform = "scale(1.08)"; }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.6)"; e.currentTarget.style.background = "rgba(255,255,255,0.08)"; e.currentTarget.style.transform = "scale(1)"; }}
-                    >
-                        {/* Progress ring */}
-                        {downloading && (
-                            <svg style={{ position: "absolute", inset: -5, width: 82, height: 82, transform: "rotate(-90deg)" }}>
-                                <circle cx="41" cy="41" r="38" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
-                                <circle cx="41" cy="41" r="38" fill="none" stroke="#007aff" strokeWidth="3"
-                                    strokeDasharray={`${2 * Math.PI * 38}`}
-                                    strokeDashoffset={`${2 * Math.PI * 38 * (1 - downloadProgress / 100)}`}
-                                    strokeLinecap="round"
-                                    style={{ transition: "stroke-dashoffset 0.15s" }}
-                                />
-                            </svg>
-                        )}
-                        {/* Download arrow icon */}
-                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <line x1="12" y1="15" x2="12" y2="3" />
+                <div style={{
+                    position: "fixed", bottom: 26, left: "50%", transform: "translateX(-50%)", zIndex: 50,
+                    display: "flex", alignItems: "center", gap: 7,
+                    padding: "7px 8px 7px 15px", borderRadius: 17,
+                    background: "rgba(20,20,24,0.72)", backdropFilter: "blur(22px)", WebkitBackdropFilter: "blur(22px)",
+                    border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 14px 44px rgba(0,0,0,0.55)",
+                }}>
+                    {/* Live output dimensions */}
+                    <div style={{
+                        display: "flex", alignItems: "center", gap: 7, paddingRight: 13, marginRight: 1,
+                        borderRight: "1px solid rgba(255,255,255,0.1)", fontSize: 12, color: "#8a8a92",
+                        fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
+                    }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.65 }}>
+                            <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 21V9" />
                         </svg>
+                        {compositing
+                            ? "Rendering..."
+                            : exportSize
+                                ? <span><span style={{ color: "#cdcdd4", fontWeight: 600 }}>{exportSize.w}</span> x <span style={{ color: "#cdcdd4", fontWeight: 600 }}>{exportSize.h}</span></span>
+                                : ""}
+                    </div>
+
+                    {/* WEBP (primary) */}
+                    <button
+                        onClick={() => doDownload("webp")} disabled={busy} title="Download WEBP (Cmd/Ctrl+S)"
+                        style={{ ...btnBase, color: "#fff", background: busy ? "rgba(0,122,255,0.4)" : "#007aff", cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}
+                        onMouseEnter={e => { if (!busy) { e.currentTarget.style.background = "#1a86ff"; e.currentTarget.style.transform = "translateY(-1px)"; } }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "#007aff"; e.currentTarget.style.transform = "none"; }}
+                    >
+                        {iconDownload} WEBP
+                    </button>
+
+                    {/* PNG */}
+                    <button
+                        onClick={() => doDownload("png")} disabled={busy} title="Download PNG"
+                        style={{ ...btnBase, color: "#d3d3d9", background: "rgba(255,255,255,0.07)", borderColor: "rgba(255,255,255,0.09)", cursor: busy ? "default" : "pointer", opacity: busy ? 0.5 : 1 }}
+                        onMouseEnter={e => { if (!busy) { e.currentTarget.style.background = "rgba(255,255,255,0.13)"; e.currentTarget.style.color = "#fff"; e.currentTarget.style.transform = "translateY(-1px)"; } }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color = "#d3d3d9"; e.currentTarget.style.transform = "none"; }}
+                    >
+                        {iconDownload} PNG
+                    </button>
+
+                    {/* Copy */}
+                    <button
+                        onClick={copyImage} disabled={compositing} title="Copy image to clipboard"
+                        style={{ ...btnBase, color: copied ? "#34c759" : "#d3d3d9", background: copied ? "rgba(52,199,89,0.14)" : "rgba(255,255,255,0.07)", borderColor: copied ? "rgba(52,199,89,0.35)" : "rgba(255,255,255,0.09)", cursor: compositing ? "default" : "pointer", opacity: compositing ? 0.5 : 1 }}
+                        onMouseEnter={e => { if (!compositing && !copied) { e.currentTarget.style.background = "rgba(255,255,255,0.13)"; e.currentTarget.style.color = "#fff"; e.currentTarget.style.transform = "translateY(-1px)"; } }}
+                        onMouseLeave={e => { if (!copied) { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.color = "#d3d3d9"; } e.currentTarget.style.transform = "none"; }}
+                    >
+                        {copied ? iconCheck : iconCopy} {copied ? "Copied" : "Copy"}
                     </button>
                 </div>
             )}
