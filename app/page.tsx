@@ -230,6 +230,20 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     });
 }
 
+// Average color of an image (1x1 downscale) - used to blend letterbox bars.
+function averageColor(img: HTMLImageElement): string {
+    try {
+        const c = document.createElement("canvas");
+        c.width = 1; c.height = 1;
+        const cx = c.getContext("2d")!;
+        cx.drawImage(img, 0, 0, 1, 1);
+        const [r, g, b] = cx.getImageData(0, 0, 1, 1).data;
+        return `rgb(${r},${g},${b})`;
+    } catch {
+        return "#000";
+    }
+}
+
 async function compositeFrame(screenshotDataUrl: string, device: DeviceType): Promise<string> {
     const meta = FRAME_META[device];
     const toLoad: Promise<HTMLImageElement>[] = [
@@ -246,24 +260,34 @@ async function compositeFrame(screenshotDataUrl: string, device: DeviceType): Pr
     canvas.height = meta.frameDimensions.height;
     const ctx = canvas.getContext("2d")!;
 
-    // Cover-fit: crop screenshot to match screen aspect ratio (no stretching)
+    // Contain-fit: show the whole screenshot (nothing cropped), centered on the
+    // screen. Fill the leftover letterbox with the screenshot's average color so
+    // the bars blend in instead of showing a hard edge.
     const screenAspect = meta.screenWidth / meta.screenHeight;
     const imgAspect = screenshot.naturalWidth / screenshot.naturalHeight;
-    let sx = 0, sy = 0, sw = screenshot.naturalWidth, sh = screenshot.naturalHeight;
+    let dw = meta.screenWidth, dh = meta.screenHeight;
+    let dx = meta.screenOffset.x, dy = meta.screenOffset.y;
     if (imgAspect > screenAspect) {
-        // Image is wider — crop sides
-        sw = screenshot.naturalHeight * screenAspect;
-        sx = (screenshot.naturalWidth - sw) / 2;
+        // Wider than screen - full width, letterbox top/bottom
+        dh = meta.screenWidth / imgAspect;
+        dy = meta.screenOffset.y + (meta.screenHeight - dh) / 2;
     } else {
-        // Image is taller — crop top from top
-        sh = screenshot.naturalWidth / screenAspect;
+        // Taller than screen - full height, letterbox sides
+        dw = meta.screenHeight * imgAspect;
+        dx = meta.screenOffset.x + (meta.screenWidth - dw) / 2;
     }
+    const fillScreen = () => {
+        ctx.fillStyle = averageColor(screenshot);
+        ctx.fillRect(meta.screenOffset.x, meta.screenOffset.y, meta.screenWidth, meta.screenHeight);
+    };
 
     if (meta.isPhoto) {
         ctx.drawImage(frame, 0, 0);
-        ctx.drawImage(screenshot, sx, sy, sw, sh, meta.screenOffset.x, meta.screenOffset.y, meta.screenWidth, meta.screenHeight);
+        fillScreen();
+        ctx.drawImage(screenshot, dx, dy, dw, dh);
     } else {
-        ctx.drawImage(screenshot, sx, sy, sw, sh, meta.screenOffset.x, meta.screenOffset.y, meta.screenWidth, meta.screenHeight);
+        fillScreen();
+        ctx.drawImage(screenshot, dx, dy, dw, dh);
         ctx.drawImage(frame, 0, 0);
     }
 
@@ -737,6 +761,10 @@ function FramesInner() {
         prevDeviceRef.current = device;
 
         const src = screenshotForDevice(device);
+        // Same screenshot as now (e.g. macbook/imac/studio-display all share the
+        // desktop shot): don't setImages - it would clobber the composited result
+        // with an un-composited copy and, since the key is unchanged, never recompute.
+        if (src === images[0].dataUrl) return;
         const img = new Image();
         img.onload = () => {
             setImages([{
@@ -774,7 +802,7 @@ function FramesInner() {
                     doDownload(results, bgRef.current);
                 }
             }
-        });
+        }).catch(() => { if (!cancelled) setCompositing(false); });
 
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
