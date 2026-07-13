@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
 import path from "path";
 
+// Public, unauthenticated image endpoint - cap work per request so a hostile
+// upload cannot exhaust memory/CPU on the serverless function.
+export const maxDuration = 30;
+const MAX_INPUT_PIXELS = 40_000_000; // 40 MP - a decompression-bomb guard for sharp
+
 /* ── Device types & metadata (mirrors client-side FRAME_META) ────────────── */
 
 type DeviceType =
@@ -206,8 +211,16 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        const meta = await sharp(buffer).metadata();
+        const inputPixels = (meta.width ?? 0) * (meta.height ?? 0);
+        if (inputPixels > MAX_INPUT_PIXELS) {
+            return NextResponse.json(
+                { error: "Image dimensions too large. Max 40 megapixels." },
+                { status: 400 },
+            );
+        }
+
         if (!device) {
-            const meta = await sharp(buffer).metadata();
             device = detectDevice(meta.width ?? 1920, meta.height ?? 1080);
         }
 
@@ -218,6 +231,7 @@ export async function POST(req: NextRequest) {
             headers: {
                 "Content-Type": "image/png",
                 "Content-Disposition": `inline; filename="framed-${device}-${Date.now()}.png"`,
+                "Cache-Control": "no-store",
                 "X-Device": device,
             },
         });

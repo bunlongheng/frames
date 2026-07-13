@@ -694,8 +694,7 @@ function FramesInner() {
 
     const [images, setImages] = useState<FrameImage[]>([]);
     const [dragging, setDragging] = useState(false);
-    const [bg, setBg] = useState(BACKGROUNDS[0].value);
-    const [compositing, setCompositing] = useState(false);
+    const [bg] = useState(BACKGROUNDS[0].value);
     const [showApiHelp, setShowApiHelp] = useState(false);
     const dragCounter = useRef(0);
     const previewRef = useRef<HTMLDivElement>(null);
@@ -728,7 +727,6 @@ function FramesInner() {
         } finally {
             setTimeout(() => setDownloading(false), 300);
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [downloading, images, bg]);
 
     /* Copy the framed image to the clipboard (PNG - the only format clipboards accept).
@@ -744,7 +742,6 @@ function FramesInner() {
             setCopied(true);
             setTimeout(() => setCopied(false), 1600);
         } catch { /* clipboard unavailable / blocked - ignore */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [images, bg]);
 
     /* Screenshot source per device */
@@ -804,7 +801,6 @@ function FramesInner() {
         // Skip if all already composited
         if (images.every(i => i.composited)) return;
         let cancelled = false;
-        setCompositing(true);
 
         Promise.all(
             images.map(async (img) => {
@@ -814,13 +810,12 @@ function FramesInner() {
         ).then((results) => {
             if (!cancelled) {
                 setImages(results);
-                setCompositing(false);
                 if (autoDownload.current) {
                     autoDownload.current = false;
                     doDownload("webp", results, bgRef.current);
                 }
             }
-        }).catch(() => { if (!cancelled) setCompositing(false); });
+        }).catch(() => {});
 
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -830,7 +825,9 @@ function FramesInner() {
        are instant and we can show the live output dimensions. */
     const exportReadyKey = images.map(i => `${i.id}:${i.device}:${i.composited ? 1 : 0}`).join(",") + "|" + bg;
     useEffect(() => {
-        if (!images.length || !images.every(i => i.composited)) { exportCanvasRef.current = null; setExportSize(null); return; }
+        // Not ready yet - drop the stale export canvas. exportSize is left as-is;
+        // the export bar shows "Rendering..." while `compositing` is true anyway.
+        if (!images.length || !images.every(i => i.composited)) { exportCanvasRef.current = null; return; }
         let cancelled = false;
         renderExportCanvas(images, bg).then(canvas => {
             if (cancelled) return;
@@ -911,11 +908,10 @@ function FramesInner() {
         router.replace(`?device=${device}`, { scroll: false });
     }, [router]);
 
-    const removeImage = useCallback((id: string) => {
-        setImages(prev => prev.filter(img => img.id !== id));
-    }, []);
-
     const isEmpty = images.length === 0;
+
+    /* Derived: we are compositing whenever an image has no composited result yet. */
+    const compositing = !isEmpty && !images.every(i => i.composited);
 
     /* Export-bar building blocks */
     const busy = compositing || downloading;
