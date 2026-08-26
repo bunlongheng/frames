@@ -1,3 +1,13 @@
+<div align="center">
+  <img src="docs/icon.png" alt="Frame" width="96" height="96" />
+  <h1>Frame</h1>
+  <p><em>API that composites screenshots into device frames with Sharp</em></p>
+  <p><a href="https://frames-bheng.vercel.app">Live</a> &middot; <a href="https://github.com/bunlongheng/frames">Repo</a> &middot; <a href="https://bunlongheng.com/projects?name=frame">Portfolio</a></p>
+  <img src="docs/social-preview.png" alt="Frame - preview" width="820" />
+</div>
+
+---
+
 # Frames
 
 Drop a screenshot and get back a polished device mockup - your image composited into a realistic Apple frame (iPhone, iPad, MacBook, iMac, Studio Display), ready to export as WEBP or PNG or copy straight to the clipboard. Everything runs in the browser; a matching HTTP API does the same server-side for programmatic callers.
