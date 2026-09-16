@@ -6,7 +6,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 
 /* ── Types ──────────────────────────────────────────────────────────────────── */
 
-type DeviceType = "iphone" | "ipad-portrait" | "ipad-landscape" | "macbook" | "imac" | "studio-display" | "studio-mini" | "tv-bamboo" | "tv-dark-panel" | "tv-gallery" | "tv-beige" | "tv-theater" | "tv-walnut" | "tv-colorful" | "tv-frame-art" | "tv-teal";
+type DeviceType = "iphone" | "iphone-landscape" | "iphone-duo" | "iphone-duo-open" | "iphone-duo-book" | "iphone-duo-desk" | "iphone-duo-laptop" | "ipad-portrait" | "ipad-landscape" | "macbook" | "imac" | "studio-display" | "studio-mini" | "tv-bamboo" | "tv-dark-panel" | "tv-gallery" | "tv-beige" | "tv-theater" | "tv-walnut" | "tv-colorful" | "tv-frame-art" | "tv-teal";
 
 interface FrameImage {
     id: string;
@@ -19,23 +19,39 @@ interface FrameImage {
 
 /* ── Device frame metadata ──────────────────────────────────────────────────── */
 
+// A folded pose: the flat open Duo bezel cut at the hinge, each half hinged in 3D.
+// Geometry ported from the emulator's renderPose - one tuned set of angles per pose.
+interface Pose {
+    axis: "x" | "y";   // hinge line: y = vertical (halves left|right), x = horizontal (top|bottom)
+    a: number;         // half 1's rotation about the hinge, degrees
+    b: number;         // half 2's
+    persp: number;     // perspective distance, in frame px
+    yaw?: number;      // camera - where you stand relative to the rig
+    pitch?: number;
+    solo?: 1 | 2;      // only this half carries the screenshot; the other shows the device's back
+}
+
 interface FrameMeta {
     label: string;
     group: string;
+    mode?: string;     // sub-mode label, shown in the picker's pill row
     file: string;
     frameDimensions: { width: number; height: number };
     screenOffset: { x: number; y: number };
     screenWidth: number;
     screenHeight: number;
+    screenRadius?: number; // corner radius of the display opening in the frame art
     displayHeight: number;
     isPhoto?: boolean; // TV setups — draw room photo first, then screenshot on top
     isCombo?: boolean; // Studio Display + Mac Mini combo
+    pose?: Pose;       // fold the flat composite into this pose before exporting
 }
 
 const FRAME_META: Record<DeviceType, FrameMeta> = {
     iphone: {
         label: "iPhone 17 Pro Max",
         group: "Apple",
+        mode: "Portrait",
         file: "/assets/frames/iphone.png",
         frameDimensions: { width: 1470, height: 3000 },
         screenOffset: { x: 75, y: 217 },
@@ -43,24 +59,108 @@ const FRAME_META: Record<DeviceType, FrameMeta> = {
         screenHeight: 2717,
         displayHeight: 420,
     },
+    "iphone-landscape": {
+        label: "iPhone 17 Pro Max",
+        group: "Apple",
+        mode: "Landscape",
+        file: "/assets/frames/iphone-landscape.png",
+        frameDimensions: { width: 3000, height: 1470 },
+        screenOffset: { x: 66, y: 76 },
+        screenWidth: 2868,
+        screenHeight: 1320,
+        screenRadius: 206,
+        displayHeight: 230,
+    },
+    // iPhone Duo — Apple's book-style foldable. Closed (front) and open are the same
+    // physical height; unfolding doubles the width. The three folded poses all render
+    // from an open bezel, so the hinge geometry only has to be right in one place.
+    "iphone-duo": {
+        label: "iPhone Duo (Front)",
+        group: "Apple",
+        mode: "Front",
+        file: "/assets/frames/iphone-duo-closed-portrait.png",
+        frameDimensions: { width: 1574, height: 2194 },
+        screenOffset: { x: 88, y: 80 },
+        screenWidth: 1398,
+        screenHeight: 2034,
+        screenRadius: 190,
+        displayHeight: 420,
+    },
+    "iphone-duo-open": {
+        label: "iPhone Duo (Open)",
+        group: "Apple",
+        mode: "Open",
+        file: "/assets/frames/iphone-duo-open-landscape.png",
+        frameDimensions: { width: 3093, height: 2247 },
+        screenOffset: { x: 120, y: 120 },
+        screenWidth: 2853,
+        screenHeight: 2007,
+        screenRadius: 174,
+        displayHeight: 330,
+    },
+    "iphone-duo-book": {
+        label: "iPhone Duo (Book)",
+        group: "Apple",
+        mode: "Book",
+        file: "/assets/frames/iphone-duo-open-landscape.png",
+        frameDimensions: { width: 3093, height: 2247 },
+        screenOffset: { x: 120, y: 120 },
+        screenWidth: 2853,
+        screenHeight: 2007,
+        screenRadius: 174,
+        displayHeight: 360,
+        pose: { axis: "y", a: 40, b: -40, persp: 4600 },
+    },
+    // Desk clock is a tent: the hinge is the ridge at the top, the near half leans back
+    // carrying the page, the far half folds down behind it so you see its back.
+    "iphone-duo-desk": {
+        label: "iPhone Duo (Desk clock)",
+        group: "Apple",
+        mode: "Desk",
+        file: "/assets/frames/iphone-duo-open-portrait.png",
+        frameDimensions: { width: 2247, height: 3093 },
+        screenOffset: { x: 120, y: 120 },
+        screenWidth: 2007,
+        screenHeight: 2853,
+        screenRadius: 174,
+        displayHeight: 340,
+        pose: { axis: "x", a: 138, b: 16, persp: 5200, solo: 2, yaw: -24, pitch: 7 },
+    },
+    "iphone-duo-laptop": {
+        label: "iPhone Duo (Laptop)",
+        group: "Apple",
+        mode: "Laptop",
+        file: "/assets/frames/iphone-duo-open-portrait.png",
+        frameDimensions: { width: 2247, height: 3093 },
+        screenOffset: { x: 120, y: 120 },
+        screenWidth: 2007,
+        screenHeight: 2853,
+        screenRadius: 174,
+        displayHeight: 340,
+        pose: { axis: "x", a: 8, b: 72, persp: 5200 },
+    },
     "ipad-portrait": {
         label: "iPad Pro Portrait",
         group: "Apple",
+        mode: "Portrait",
         file: "/assets/frames/ipad-portrait.png",
         frameDimensions: { width: 2245, height: 2930 },
         screenOffset: { x: 96, y: 102 },
         screenWidth: 2048,
         screenHeight: 2732,
+        screenRadius: 44,
         displayHeight: 380,
     },
     "ipad-landscape": {
         label: "iPad Pro Landscape",
         group: "Apple",
+        mode: "Landscape",
         file: "/assets/frames/ipad-landscape.png",
         frameDimensions: { width: 2930, height: 2245 },
         screenOffset: { x: 102, y: 101 },
         screenWidth: 2732,
         screenHeight: 2048,
+        screenRadius: 44,
         displayHeight: 320,
     },
     macbook: {
@@ -205,11 +305,28 @@ const FRAME_META: Record<DeviceType, FrameMeta> = {
     },
 };
 
-const DEVICE_GROUPS = [
-    { group: "Apple", devices: ["iphone", "ipad-portrait", "ipad-landscape", "macbook", "imac", "studio-display"] as DeviceType[] },
+/* A family is one circle in the picker. Families with more than one device get a
+   sub-selection row underneath - orientation for the iPhone and iPad, the five
+   fold poses for the Duo. */
+interface Family {
+    id: string;
+    label: string;
+    icon: string;
+    devices: DeviceType[];
+}
+
+const FAMILIES: Family[] = [
+    { id: "iphone", label: "iPhone 17 Pro Max", icon: "/assets/icons/iphone.png", devices: ["iphone", "iphone-landscape"] },
+    { id: "iphone-duo", label: "iPhone Duo", icon: "/assets/icons/iphone-duo.png", devices: ["iphone-duo", "iphone-duo-open", "iphone-duo-book", "iphone-duo-desk", "iphone-duo-laptop"] },
+    { id: "ipad-pro", label: "iPad Pro", icon: "/assets/icons/ipad.png", devices: ["ipad-portrait", "ipad-landscape"] },
+    { id: "macbook", label: "MacBook Air", icon: "/assets/icons/macbook.png", devices: ["macbook"] },
+    { id: "imac", label: "iMac 24″", icon: "/assets/icons/imac.png", devices: ["imac"] },
+    { id: "studio-display", label: "Studio Display", icon: "/assets/icons/studio-display.png", devices: ["studio-display"] },
     // TV behind beta — uncomment when hi-res images available
-    // { group: "TV (Beta)", devices: ["tv-bamboo", "tv-dark-panel", "tv-gallery", "tv-beige", "tv-theater", "tv-walnut", "tv-colorful", "tv-frame-art", "tv-teal"] as DeviceType[] },
+    // { id: "tv", label: "TV", icon: "/assets/icons/tv.png", devices: ["tv-bamboo", "tv-dark-panel", "tv-gallery", "tv-beige", "tv-theater", "tv-walnut", "tv-colorful", "tv-frame-art", "tv-teal"] },
 ];
+
+const familyOf = (d: DeviceType): Family => FAMILIES.find(f => f.devices.includes(d)) || FAMILIES[0];
 
 function detectDevice(w: number, h: number): DeviceType {
     const ratio = h / w;
@@ -244,6 +361,315 @@ function averageColor(img: HTMLImageElement): string {
     }
 }
 
+/* ── Folding a pose ─────────────────────────────────────────────────────────── */
+
+const rad = (deg: number) => (deg * Math.PI) / 180;
+
+// px of art each half carries PAST the hinge. Two planes that meet exactly on the
+// hinge leave a hairline the moment they rotate apart; overlapping them closes it.
+const POSE_BLEED = 10;
+
+// Project a point of one half - u runs out from the hinge, v across it - through the
+// whole chain: the half's own hinge rotation, then the camera, then perspective.
+// Returns [x, y, z]; z is the depth, used to decide which half is drawn first.
+function projectPoint(pose: Pose, u: number, v: number, angle: number): [number, number, number] {
+    const vert = pose.axis === "y";
+    const t = rad(angle);
+    const yaw = rad(pose.yaw || 0), pitch = rad(pose.pitch || 0);
+    let x = vert ? u * Math.cos(t) : v;
+    let y = vert ? v : u * Math.cos(t);
+    let z = vert ? -u * Math.sin(t) : u * Math.sin(t);
+    const xr = x * Math.cos(yaw) + z * Math.sin(yaw);
+    z = -x * Math.sin(yaw) + z * Math.cos(yaw);
+    x = xr;
+    const yr = y * Math.cos(pitch) - z * Math.sin(pitch);
+    z = y * Math.sin(pitch) + z * Math.cos(pitch);
+    y = yr;
+    const m = pose.persp / Math.max(pose.persp - z, pose.persp * 0.2); // magnification at that depth
+    return [x * m, y * m, z];
+}
+
+// Output box of a pose: the PROJECTED bounds of both halves (perspective magnifies
+// whatever leans forward), plus where the hinge lands inside that box. Sizing off the
+// real bounds is what keeps the preview aspect honest and stops a near corner clipping.
+const poseGeomCache = new Map<DeviceType, ReturnType<typeof computePoseGeometry>>();
+
+function computePoseGeometry(meta: FrameMeta, pose: Pose = meta.pose!) {
+    const { width: fw, height: fh } = meta.frameDimensions;
+    const vert = pose.axis === "y";
+    const half = (vert ? fw : fh) / 2;    // the hinge runs down the middle of the art
+    const cross = (vert ? fh : fw) / 2;   // half the art ACROSS the hinge
+    const pts: [number, number, number][] = [];
+    ([[-half, pose.a], [half, pose.b]] as const).forEach(([u, angle]) => {
+        [0, u].forEach(uu => [-cross, cross].forEach(vv => pts.push(projectPoint(pose, uu, vv, angle))));
+    });
+    const minX = Math.min(...pts.map(p => p[0])), maxX = Math.max(...pts.map(p => p[0]));
+    const minY = Math.min(...pts.map(p => p[1])), maxY = Math.max(...pts.map(p => p[1]));
+    return {
+        width: Math.round(maxX - minX),
+        height: Math.round(maxY - minY),
+        hx: -minX, hy: -minY, half, cross,
+    };
+}
+
+function poseGeometry(device: DeviceType, meta: FrameMeta) {
+    let g = poseGeomCache.get(device);
+    if (!g) { g = computePoseGeometry(meta); poseGeomCache.set(device, g); }
+    return g;
+}
+
+// What the preview and export actually measure: a pose's projected box, everyone
+// else's flat frame art.
+function outputDimensions(device: DeviceType) {
+    const meta = FRAME_META[device];
+    return meta.pose ? poseGeometry(device, meta) : meta.frameDimensions;
+}
+
+// Push every edge of a triangle `pad` px outward. Neighbouring mesh cells then
+// overlap by a full pixel, so each one's opaque interior paints over the other's
+// antialiased clip edge - two half-covered edges meeting would leave a hairline of
+// the background showing through, which reads as a grid across the fold.
+function expandTriangle(p: number[][], pad: number): number[][] {
+    const area = (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1]);
+    const s = area >= 0 ? 1 : -1; // winding, so the normals point out and not in
+    const lines = p.map((a, i) => {
+        const b = p[(i + 1) % 3];
+        const dx = b[0] - a[0], dy = b[1] - a[1];
+        const len = Math.hypot(dx, dy) || 1;
+        const nx = (s * dy) / len, ny = (-s * dx) / len;
+        return [nx, ny, nx * a[0] + ny * a[1] + pad]; // nx*x + ny*y = c
+    });
+    return p.map((v, i) => {
+        const [ax, ay, ac] = lines[(i + 2) % 3]; // the two edges that meet at this vertex
+        const [bx, by, bc] = lines[i];
+        const det = ax * by - bx * ay;
+        if (Math.abs(det) < 1e-9) return v; // degenerate sliver - leave it be
+        return [(ac * by - bc * ay) / det, (ax * bc - bx * ac) / det];
+    });
+}
+
+// Affine-map one source triangle onto its projected destination.
+function drawTexTriangle(
+    ctx: CanvasRenderingContext2D,
+    img: CanvasImageSource,
+    s0: number[], s1: number[], s2: number[],
+    d0: number[], d1: number[], d2: number[],
+    imgW: number, imgH: number,
+) {
+    const x1 = s1[0] - s0[0], y1 = s1[1] - s0[1];
+    const x2 = s2[0] - s0[0], y2 = s2[1] - s0[1];
+    const det = x1 * y2 - x2 * y1;
+    if (!det) return;
+    const u1 = d1[0] - d0[0], v1 = d1[1] - d0[1];
+    const u2 = d2[0] - d0[0], v2 = d2[1] - d0[1];
+    const a = (u1 * y2 - u2 * y1) / det;
+    const b = (v1 * y2 - v2 * y1) / det;
+    const c = (u2 * x1 - u1 * x2) / det;
+    const d = (v2 * x1 - v1 * x2) / det;
+    const e = d0[0] - a * s0[0] - c * s0[1];
+    const f = d0[1] - b * s0[0] - d * s0[1];
+
+    const [e0, e1, e2] = expandTriangle([d0, d1, d2], 0.8);
+
+    // Only rasterize the source cell, not the whole sheet, for every one of the
+    // hundreds of triangles in the mesh.
+    const bx0 = Math.max(0, Math.floor(Math.min(s0[0], s1[0], s2[0])) - 1);
+    const by0 = Math.max(0, Math.floor(Math.min(s0[1], s1[1], s2[1])) - 1);
+    const bx1 = Math.min(imgW, Math.ceil(Math.max(s0[0], s1[0], s2[0])) + 1);
+    const by1 = Math.min(imgH, Math.ceil(Math.max(s0[1], s1[1], s2[1])) + 1);
+    if (bx1 <= bx0 || by1 <= by0) return;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(e0[0], e0[1]); ctx.lineTo(e1[0], e1[1]); ctx.lineTo(e2[0], e2[1]);
+    ctx.closePath();
+    ctx.clip();
+    ctx.transform(a, b, c, d, e, f);
+    ctx.drawImage(img, bx0, by0, bx1 - bx0, by1 - by0, bx0, by0, bx1 - bx0, by1 - by0);
+    ctx.restore();
+}
+
+// The hinge edge of each half falls into shadow, and a half turned away from the
+// viewer dims overall. Together that is what reads as a bend rather than two flat
+// pictures. source-atop keeps the wash on the device instead of on the stage behind it.
+// `slot` reuses one of two scratch canvases instead of allocating - the fold animation
+// calls this twice a frame and fresh canvases at 60fps would thrash the collector.
+const shadeScratch: HTMLCanvasElement[] = [];
+
+function shadeHalf(flat: HTMLCanvasElement, pose: Pose, angle: number, first: boolean, slot?: number): HTMLCanvasElement {
+    const dim = (1 - Math.cos(rad(angle))) * 0.62;
+    if (dim < 0.002) return flat;
+    const c = slot === undefined
+        ? document.createElement("canvas")
+        : (shadeScratch[slot] ||= document.createElement("canvas"));
+    const cx = c.getContext("2d")!;
+    if (c.width !== flat.width || c.height !== flat.height) { c.width = flat.width; c.height = flat.height; }
+    else cx.clearRect(0, 0, c.width, c.height);
+    cx.globalCompositeOperation = "source-over";
+    cx.drawImage(flat, 0, 0);
+    const vert = pose.axis === "y";
+    // the gradient runs toward this half's hinge edge
+    const [gx0, gy0, gx1, gy1] = vert
+        ? (first ? [0, 0, flat.width, 0] : [flat.width, 0, 0, 0])
+        : (first ? [0, 0, 0, flat.height] : [0, flat.height, 0, 0]);
+    const grad = cx.createLinearGradient(gx0, gy0, gx1, gy1);
+    grad.addColorStop(0, `rgba(0,0,0,${dim * 0.8})`);
+    grad.addColorStop(0.35, `rgba(0,0,0,${dim * 0.8})`);
+    grad.addColorStop(1, `rgba(0,0,0,${Math.min(0.88, dim + 0.2)})`);
+    cx.globalCompositeOperation = "source-atop";
+    cx.fillStyle = grad;
+    cx.fillRect(0, 0, flat.width, flat.height);
+    return c;
+}
+
+// Paint one folded frame: each half is a 3D plane pinned at the hinge, drawn as a mesh
+// of affine-mapped triangles - canvas has no perspective transform, so subdividing is
+// what buys one. The projected box is scaled by `k` and placed at (ox, oy); `srcScale`
+// says how many src px there are per full-resolution frame px, so the same geometry can
+// drive a downscaled sheet during the animation and the full-size one for the export.
+function paintFold(
+    ctx: CanvasRenderingContext2D,
+    src: HTMLCanvasElement,
+    meta: FrameMeta,
+    pose: Pose,
+    g: ReturnType<typeof computePoseGeometry>,
+    k: number, ox: number, oy: number,
+    srcScale: number,
+    nu: number, nv: number,
+    reuse = false,
+) {
+    const vert = pose.axis === "y";
+    // Half 1 runs from the outer edge to BLEED past the hinge; half 2 mirrors it.
+    // Draw the half that sits farther from the camera first so the near one overlaps it.
+    const halves = [
+        { angle: pose.a, u0: -g.half, u1: POSE_BLEED, first: true },
+        { angle: pose.b, u0: -POSE_BLEED, u1: g.half, first: false },
+    ].sort((p, q) =>
+        projectPoint(pose, (p.u0 + p.u1) / 2, 0, p.angle)[2] -
+        projectPoint(pose, (q.u0 + q.u1) / 2, 0, q.angle)[2]);
+
+    const sx = (u: number, v: number) => (vert ? g.half + u : g.cross + v) * srcScale;
+    const sy = (u: number, v: number) => (vert ? g.cross + v : g.half + u) * srcScale;
+
+    halves.forEach((h, n) => {
+        const sheet = shadeHalf(src, pose, h.angle, h.first, reuse ? n : undefined);
+        for (let i = 0; i < nu; i++) {
+            const ua = h.u0 + ((h.u1 - h.u0) * i) / nu;
+            const ub = h.u0 + ((h.u1 - h.u0) * (i + 1)) / nu;
+            for (let j = 0; j < nv; j++) {
+                const va = -g.cross + ((2 * g.cross) * j) / nv;
+                const vb = -g.cross + ((2 * g.cross) * (j + 1)) / nv;
+                const corners: [number, number][] = [[ua, va], [ub, va], [ub, vb], [ua, vb]];
+                const s = corners.map(([u, v]) => [sx(u, v), sy(u, v)]);
+                const d = corners.map(([u, v]) => {
+                    const [x, y] = projectPoint(pose, u, v, h.angle);
+                    return [(x + g.hx) * k + ox, (y + g.hy) * k + oy];
+                });
+                drawTexTriangle(ctx, sheet, s[0], s[1], s[2], d[0], d[1], d[2], sheet.width, sheet.height);
+                drawTexTriangle(ctx, sheet, s[0], s[2], s[3], d[0], d[2], d[3], sheet.width, sheet.height);
+            }
+        }
+    });
+}
+
+// Cells across the hinge are only needed when the camera is off-axis - with no yaw or
+// pitch, depth varies along u alone and one cell across is already exact.
+const crossCells = (pose: Pose, full: boolean) =>
+    pose.yaw || pose.pitch ? (full ? 16 : 9) : 1;
+
+// The export-quality fold: full mesh, native resolution, tight to the projected box.
+function foldPose(flat: HTMLCanvasElement, device: DeviceType): HTMLCanvasElement {
+    const meta = FRAME_META[device];
+    const g = poseGeometry(device, meta);
+    const out = document.createElement("canvas");
+    out.width = g.width; out.height = g.height;
+    const ctx = out.getContext("2d")!;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    paintFold(ctx, flat, meta, meta.pose!, g, 1, 0, 0, 1, 48, crossCells(meta.pose!, true));
+    return out;
+}
+
+/* ── The fold animation ─────────────────────────────────────────────────────── */
+
+// The flat composite behind the most recent pose, kept so the animation can re-warp it
+// every frame instead of recompositing. One entry - the animation runs right after the
+// composite that produced it.
+let lastFlat: { device: DeviceType; source: string; canvas: HTMLCanvasElement } | null = null;
+
+function takeFlat(device: DeviceType, source: string) {
+    return lastFlat && lastFlat.device === device && lastFlat.source === source ? lastFlat.canvas : null;
+}
+
+// A cheap sheet for the animation - full-resolution art is far more than a 400px-tall
+// preview needs, and warping it 60 times a second would drop frames.
+function downscale(src: HTMLCanvasElement, maxSide: number): HTMLCanvasElement {
+    const k = Math.min(1, maxSide / Math.max(src.width, src.height));
+    if (k === 1) return src;
+    const c = document.createElement("canvas");
+    c.width = Math.round(src.width * k); c.height = Math.round(src.height * k);
+    const cx = c.getContext("2d")!;
+    cx.imageSmoothingQuality = "high";
+    cx.drawImage(src, 0, 0, c.width, c.height);
+    return c;
+}
+
+// Fold the device into place: it starts flat-open and closes to the pose's real angles.
+// Every frame is fitted inside the canvas, so the last one - the pose at full angle -
+// lands exactly on the still that replaces it. Returns a cancel function.
+function playFold(canvas: HTMLCanvasElement, flat: HTMLCanvasElement, device: DeviceType, onDone: () => void) {
+    const meta = FRAME_META[device];
+    const pose = meta.pose!;
+    const sheet = downscale(flat, 820);
+    const srcScale = sheet.width / meta.frameDimensions.width;
+    const ctx = canvas.getContext("2d")!;
+    ctx.imageSmoothingQuality = "high";
+    const nv = crossCells(pose, false);
+    const nu = nv > 1 ? 20 : 30;
+
+    const DURATION = 620;
+    let raf = 0, start = 0, cancelled = false;
+    const step = (now: number) => {
+        if (cancelled) return;
+        if (!start) start = now;
+        const t = Math.min(1, (now - start) / DURATION);
+        const e = 1 - Math.pow(1 - t, 3); // ease-out - it swings open fast and settles
+        const frame: Pose = {
+            ...pose,
+            a: pose.a * e, b: pose.b * e,
+            yaw: (pose.yaw || 0) * e, pitch: (pose.pitch || 0) * e,
+        };
+        const g = computePoseGeometry(meta, frame);
+        const k = Math.min(canvas.width / g.width, canvas.height / g.height);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        paintFold(ctx, sheet, meta, frame, g, k,
+            (canvas.width - g.width * k) / 2, (canvas.height - g.height * k) / 2,
+            srcScale, nu, nv, true);
+        if (t < 1) raf = requestAnimationFrame(step);
+        else onDone();
+    };
+    raf = requestAnimationFrame(step);
+    return () => { cancelled = true; cancelAnimationFrame(raf); };
+}
+
+/* ── Compositing ────────────────────────────────────────────────────────────── */
+
+// The rect of art the screenshot paints into. Normally the whole screen. A `solo` pose
+// hands the page to the half that faces the viewer and leaves the other showing the
+// device's back, so the shot is laid out to the panel you actually see.
+function screenRect(meta: FrameMeta) {
+    let x0 = meta.screenOffset.x, y0 = meta.screenOffset.y;
+    let x1 = x0 + meta.screenWidth, y1 = y0 + meta.screenHeight;
+    const pose = meta.pose;
+    if (pose?.solo) {
+        const vert = pose.axis === "y";
+        const half = (vert ? meta.frameDimensions.width : meta.frameDimensions.height) / 2;
+        if (vert) { if (pose.solo === 2) x0 = half; else x1 = half; }
+        else { if (pose.solo === 2) y0 = half; else y1 = half; }
+    }
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
 async function compositeFrame(screenshotDataUrl: string, device: DeviceType): Promise<string> {
     const meta = FRAME_META[device];
     const toLoad: Promise<HTMLImageElement>[] = [
@@ -263,31 +689,42 @@ async function compositeFrame(screenshotDataUrl: string, device: DeviceType): Pr
     // Contain-fit: show the whole screenshot (nothing cropped), centered on the
     // screen. Fill the leftover letterbox with the screenshot's average color so
     // the bars blend in instead of showing a hard edge.
-    const screenAspect = meta.screenWidth / meta.screenHeight;
+    const rect = screenRect(meta);
+    const screenAspect = rect.w / rect.h;
     const imgAspect = screenshot.naturalWidth / screenshot.naturalHeight;
-    let dw = meta.screenWidth, dh = meta.screenHeight;
-    let dx = meta.screenOffset.x, dy = meta.screenOffset.y;
+    let dw = rect.w, dh = rect.h;
+    let dx = rect.x, dy = rect.y;
     if (imgAspect > screenAspect) {
         // Wider than screen - full width, letterbox top/bottom
-        dh = meta.screenWidth / imgAspect;
-        dy = meta.screenOffset.y + (meta.screenHeight - dh) / 2;
+        dh = rect.w / imgAspect;
+        dy = rect.y + (rect.h - dh) / 2;
     } else {
         // Taller than screen - full height, letterbox sides
-        dw = meta.screenHeight * imgAspect;
-        dx = meta.screenOffset.x + (meta.screenWidth - dw) / 2;
+        dw = rect.h * imgAspect;
+        dx = rect.x + (rect.w - dw) / 2;
     }
-    const fillScreen = () => {
+    // The panel behind the shot covers the WHOLE screen - on a solo pose the half that
+    // carries no page still reads as a lit panel until the fold's shading darkens it.
+    // Rounded where the display opening is: a square fill would poke out past the
+    // bezel's corner radius, since the frame art is transparent out there.
+    const paintScreen = () => {
+        ctx.save();
+        if (meta.screenRadius) {
+            ctx.beginPath();
+            ctx.roundRect(meta.screenOffset.x, meta.screenOffset.y, meta.screenWidth, meta.screenHeight, meta.screenRadius);
+            ctx.clip();
+        }
         ctx.fillStyle = averageColor(screenshot);
         ctx.fillRect(meta.screenOffset.x, meta.screenOffset.y, meta.screenWidth, meta.screenHeight);
+        ctx.drawImage(screenshot, dx, dy, dw, dh);
+        ctx.restore();
     };
 
     if (meta.isPhoto) {
         ctx.drawImage(frame, 0, 0);
-        fillScreen();
-        ctx.drawImage(screenshot, dx, dy, dw, dh);
+        paintScreen();
     } else {
-        fillScreen();
-        ctx.drawImage(screenshot, dx, dy, dw, dh);
+        paintScreen();
         ctx.drawImage(frame, 0, 0);
     }
 
@@ -299,6 +736,10 @@ async function compositeFrame(screenshotDataUrl: string, device: DeviceType): Pr
         ctx.drawImage(macMini, miniX, miniY, miniSize, miniSize);
     }
 
+    if (meta.pose) {
+        lastFlat = { device, source: screenshotDataUrl, canvas }; // the animation re-warps this
+        return foldPose(canvas, device).toDataURL("image/png");
+    }
     return canvas.toDataURL("image/png");
 }
 
@@ -464,47 +905,158 @@ function fireConfetti() {
 
 /* ── Device Picker ──────────────────────────────────────────────────────────── */
 
-const DEVICE_ICONS: Record<string, string> = {
-    iphone: "/assets/icons/iphone.png",
-    "ipad-portrait": "/assets/icons/ipad.png",
-    "ipad-landscape": "/assets/icons/ipad.png",
-    macbook: "/assets/icons/macbook.png",
-    imac: "/assets/icons/imac.png",
-    "studio-display": "/assets/icons/studio-display.png",
-    "studio-mini": "/assets/icons/studio-display.png",
-};
-
 function DevicePicker({ current, onChange }: { current: DeviceType; onChange: (d: DeviceType) => void }) {
     const [hovered, setHovered] = useState<string | null>(null);
+    const family = familyOf(current);
     return (
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
-            {DEVICE_GROUPS.flatMap(g => g.devices).map(d => (
-                <div key={d} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-                    <button
-                        onClick={() => onChange(d)}
-                        onMouseEnter={() => setHovered(d)}
-                        onMouseLeave={() => setHovered(null)}
-                        style={{
-                            width: 103, height: 103, borderRadius: "50%",
-                            border: current === d ? "2px solid #007aff" : "2px solid transparent",
-                            background: "#fff",
-                            cursor: "pointer",
-                            transition: "all 0.15s",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            boxShadow: current === d ? "0 0 0 3px rgba(0,122,255,0.3)" : "0 2px 8px rgba(0,0,0,0.2)",
-                        }}
-                    >
-                        {DEVICE_ICONS[d] && <img src={DEVICE_ICONS[d]} alt={FRAME_META[d].label} style={{ width: 72, height: 72, objectFit: "contain" }} draggable={false} />}
-                    </button>
-                    <span style={{
-                        fontSize: 11, fontWeight: 500, color: current === d ? "#4da3ff" : "#666",
-                        opacity: hovered === d || current === d ? 1 : 0,
-                        transition: "opacity 0.15s",
-                    }}>
-                        {FRAME_META[d].label}
-                    </span>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+                {FAMILIES.map(f => {
+                    const active = f.id === family.id;
+                    return (
+                        <div key={f.id} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                            <button
+                                // Switching back to a family you were already in keeps the mode you left it on.
+                                onClick={() => onChange(f.devices.includes(current) ? current : f.devices[0])}
+                                onMouseEnter={() => setHovered(f.id)}
+                                onMouseLeave={() => setHovered(null)}
+                                style={{
+                                    width: 103, height: 103, borderRadius: "50%",
+                                    border: active ? "2px solid #007aff" : "2px solid transparent",
+                                    background: "#fff",
+                                    cursor: "pointer",
+                                    transition: "all 0.15s",
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    boxShadow: active ? "0 0 0 3px rgba(0,122,255,0.3)" : "0 2px 8px rgba(0,0,0,0.2)",
+                                }}
+                            >
+                                <img src={f.icon} alt={f.label} style={{ width: 72, height: 72, objectFit: "contain" }} draggable={false} />
+                            </button>
+                            <span style={{
+                                fontSize: 11, fontWeight: 500, color: active ? "#4da3ff" : "#666",
+                                opacity: hovered === f.id || active ? 1 : 0,
+                                transition: "opacity 0.15s",
+                            }}>
+                                {f.label}
+                            </span>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Sub-selection - orientation, or the Duo's fold poses */}
+            {family.devices.length > 1 && (
+                <div style={{
+                    display: "flex", gap: 4, padding: 4, borderRadius: 13,
+                    background: "rgba(255,255,255,0.05)",
+                    border: "1px solid rgba(255,255,255,0.07)",
+                }}>
+                    {family.devices.map(d => {
+                        const on = d === current;
+                        return (
+                            <button
+                                key={d}
+                                onClick={() => onChange(d)}
+                                title={FRAME_META[d].label}
+                                style={{
+                                    height: 30, padding: "0 14px", borderRadius: 9, border: "none",
+                                    fontSize: 12.5, fontWeight: 600, fontFamily: "inherit", letterSpacing: "0.01em",
+                                    cursor: "pointer", whiteSpace: "nowrap",
+                                    color: on ? "#fff" : "#9a9aa2",
+                                    background: on ? "#007aff" : "transparent",
+                                    transition: "background 0.15s, color 0.15s",
+                                }}
+                                onMouseEnter={e => { if (!on) { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; e.currentTarget.style.color = "#e6e6ea"; } }}
+                                onMouseLeave={e => { if (!on) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#9a9aa2"; } }}
+                            >
+                                {FRAME_META[d].mode}
+                            </button>
+                        );
+                    })}
                 </div>
-            ))}
+            )}
+        </div>
+    );
+}
+
+/* ── Preview stage ──────────────────────────────────────────────────────────── */
+
+/* Holds the frame on screen while the next one composites, so a device switch never
+   flashes the bare screenshot, then crossfades the two. A pose arrives folding: the
+   canvas plays the fold and hands over to the still on its last frame. */
+function FramePreview({ image }: { image: FrameImage }) {
+    const meta = FRAME_META[image.device];
+
+    const [shown, setShown] = useState<{ src: string; device: DeviceType } | null>(null);
+    const [prev, setPrev] = useState<string | null>(null);
+    const [lit, setLit] = useState(true);     // drives the crossfade between the two layers
+    const [folding, setFolding] = useState(false);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+
+    // The box follows what is actually on screen - the old frame keeps its own size
+    // until the new one is ready, then the box eases to the new one as they crossfade.
+    const pending = !image.composited; // compositing the next frame - dim, do not blank
+    const box = folding || !shown ? image.device : shown.device;
+    const boxDims = outputDimensions(box);
+    const h = FRAME_META[box].displayHeight;
+    const w = Math.round((h * boxDims.width) / boxDims.height);
+
+    useEffect(() => {
+        if (!image.composited) return; // still compositing - leave the last frame up
+        const src = image.composited;
+        const land = (folded: boolean) => {
+            if (folded) {
+                // the fold's last frame IS the still, so hand over without a crossfade
+                setPrev(null);
+                setLit(true);
+            } else {
+                setPrev(shown && shown.src !== src ? shown.src : null);
+                setLit(false);
+                requestAnimationFrame(() => requestAnimationFrame(() => setLit(true)));
+            }
+            setFolding(false);
+            setShown({ src, device: image.device });
+        };
+
+        const flat = takeFlat(image.device, image.dataUrl);
+        const canvas = canvasRef.current;
+        if (!meta.pose || !flat || !canvas) { land(false); return; }
+
+        // Size the canvas to the POSE's own box - the container is still the outgoing
+        // frame's size at this point, and is about to ease across to this one.
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const target = outputDimensions(image.device);
+        const th = meta.displayHeight;
+        const tw = Math.round((th * target.width) / target.height);
+        canvas.width = Math.round(tw * dpr);
+        canvas.height = Math.round(th * dpr);
+        setFolding(true);
+        return playFold(canvas, flat, image.device, () => land(true));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [image.composited, image.device]);
+
+    const layer: React.CSSProperties = {
+        position: "absolute", inset: 0, width: "100%", height: "100%",
+        objectFit: "contain", display: "block",
+        transition: "opacity 0.26s ease",
+    };
+
+    return (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <div style={{
+                position: "relative", width: w, height: h,
+                opacity: pending ? 0.45 : 1,
+                transform: pending ? "scale(0.97)" : "scale(1)",
+                transition: "width 0.34s cubic-bezier(0.22,1,0.36,1), height 0.34s cubic-bezier(0.22,1,0.36,1),"
+                    + " opacity 0.3s ease, transform 0.3s cubic-bezier(0.22,1,0.36,1)",
+            }}>
+                {prev && <img src={prev} alt="" style={{ ...layer, opacity: lit ? 0 : 1 }} draggable={false} />}
+                {shown && <img src={shown.src} alt={meta.label} style={{ ...layer, opacity: folding ? 0 : lit ? 1 : 0 }} draggable={false} />}
+                <canvas ref={canvasRef} style={{ ...layer, opacity: folding ? 1 : 0 }} />
+            </div>
+            <span style={{ marginTop: 8, fontSize: 11, color: "rgba(255,255,255,0.4)", fontWeight: 500, textAlign: "center", width: "100%" }}>
+                {meta.group === "TV" ? `TV - ${meta.label}` : `Apple ${meta.label}`}
+            </span>
         </div>
     );
 }
@@ -604,7 +1156,7 @@ function ApiHelpModal({ onClose }: { onClose: () => void }) {
                 <div style={{ marginBottom: 20 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Devices</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {(["iphone", "ipad-portrait", "ipad-landscape", "macbook", "imac", "studio-display", "studio-mini"] as const).map(d => (
+                        {(["iphone", "iphone-landscape", "iphone-duo", "iphone-duo-open", "ipad-portrait", "ipad-landscape", "macbook", "imac", "studio-display", "studio-mini"] as const).map(d => (
                             <span key={d} style={{ background: "rgba(255,255,255,0.06)", padding: "3px 10px", borderRadius: 6, fontSize: 11, color: "#aaa", fontFamily: "monospace" }}>{d}</span>
                         ))}
                     </div>
@@ -746,8 +1298,8 @@ function FramesInner() {
 
     /* Screenshot source per device */
     const screenshotForDevice = useCallback((device: DeviceType) => {
-        if (device === "iphone") return "/assets/screenshots/bunlongheng-mobile.png";
-        if (device === "ipad-portrait") return "/assets/screenshots/bunlongheng-tablet.png";
+        if (device === "iphone" || device === "iphone-duo") return "/assets/screenshots/bunlongheng-mobile.png";
+        if (device === "ipad-portrait" || device === "iphone-duo-laptop") return "/assets/screenshots/bunlongheng-tablet.png";
         return "/assets/screenshots/bunlongheng.png";
     }, []);
 
@@ -802,12 +1354,19 @@ function FramesInner() {
         if (images.every(i => i.composited)) return;
         let cancelled = false;
 
-        Promise.all(
+        // Let the stage paint its working state first. Compositing - and, for a pose,
+        // the full-resolution fold and PNG encode - blocks the main thread for a few
+        // hundred ms, so the dim/scale has to be on screen and running on the
+        // compositor before we start, or the transition never gets shown at all.
+        const painted = new Promise<void>(r =>
+            requestAnimationFrame(() => requestAnimationFrame(() => r())));
+
+        painted.then(() => Promise.all(
             images.map(async (img) => {
                 const composited = await compositeFrame(img.dataUrl, img.device);
                 return { ...img, composited };
             })
-        ).then((results) => {
+        )).then((results) => {
             if (!cancelled) {
                 setImages(results);
                 if (autoDownload.current) {
@@ -968,7 +1527,7 @@ function FramesInner() {
                                 1 image → pick a device &nbsp;·&nbsp; 3–4 images → advertisement layout
                             </div>
                             <div style={{ fontSize: 11, color: "#444", marginTop: 4 }}>
-                                iPhone · iPad · MacBook · iMac · Studio Display
+                                iPhone · iPhone Duo · iPad · MacBook · iMac · Studio Display
                             </div>
                         </div>
                     ) : (
@@ -986,25 +1545,7 @@ function FramesInner() {
                                 minHeight: 300,
                             }}
                         >
-                            {images.map(img => {
-                                const meta = FRAME_META[img.device];
-                                const aspect = meta.frameDimensions.width / meta.frameDimensions.height;
-                                const h = meta.displayHeight;
-                                const w = h * aspect;
-                                return (
-                                    <div key={img.id} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                                        <img
-                                            src={img.composited || img.dataUrl}
-                                            alt={meta.label}
-                                            style={{ height: h, width: w, objectFit: "contain", display: "block" }}
-                                            draggable={false}
-                                        />
-                                        <span style={{ marginTop: 8, fontSize: 11, color: "rgba(255,255,255,0.4)", fontWeight: 500, textAlign: "center", width: "100%" }}>
-                                            {meta.group === "TV" ? `TV — ${meta.label}` : `Apple ${meta.label}`}
-                                        </span>
-                                    </div>
-                                );
-                            })}
+                            {images.map(img => <FramePreview key={img.id} image={img} />)}
                         </div>
                     )}
                 </div>
