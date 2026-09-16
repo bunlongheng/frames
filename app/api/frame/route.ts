@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import sharp from "sharp";
+import sharp, { type OverlayOptions } from "sharp";
 import path from "path";
 
 // Public, unauthenticated image endpoint - cap work per request so a hostile
@@ -11,6 +11,9 @@ const MAX_INPUT_PIXELS = 40_000_000; // 40 MP - a decompression-bomb guard for s
 
 type DeviceType =
     | "iphone"
+    | "iphone-landscape"
+    | "iphone-duo"
+    | "iphone-duo-open"
     | "ipad-portrait"
     | "ipad-landscape"
     | "macbook"
@@ -36,6 +39,32 @@ const FRAME_META: Record<DeviceType, FrameMeta> = {
         screenOffset: { x: 75, y: 217 },
         screenWidth: 1320,
         screenHeight: 2717,
+    },
+    "iphone-landscape": {
+        label: "iPhone 17 Pro Max Landscape",
+        file: "iphone-landscape.png",
+        frameDimensions: { width: 3000, height: 1470 },
+        screenOffset: { x: 66, y: 76 },
+        screenWidth: 2868,
+        screenHeight: 1320,
+    },
+    // The Duo's folded poses (book / desk / laptop) are browser-only - they need a
+    // perspective mesh warp that this flat sharp pipeline does not do.
+    "iphone-duo": {
+        label: "iPhone Duo (Front)",
+        file: "iphone-duo-closed-portrait.png",
+        frameDimensions: { width: 1574, height: 2194 },
+        screenOffset: { x: 88, y: 80 },
+        screenWidth: 1398,
+        screenHeight: 2034,
+    },
+    "iphone-duo-open": {
+        label: "iPhone Duo (Open)",
+        file: "iphone-duo-open-landscape.png",
+        frameDimensions: { width: 3093, height: 2247 },
+        screenOffset: { x: 120, y: 120 },
+        screenWidth: 2853,
+        screenHeight: 2007,
     },
     "ipad-portrait": {
         label: "iPad Pro Portrait",
@@ -123,7 +152,7 @@ async function compositeFrame(
     const canvasHeight = meta.frameDimensions.height;
 
     // Build composite layers: screenshot under frame (transparent screen)
-    const layers: sharp.OverlayOptions[] = [
+    const layers: OverlayOptions[] = [
         {
             input: resizedScreenshot,
             left: meta.screenOffset.x,
